@@ -5,6 +5,8 @@
 
 #define FILAS 5
 #define COLUNAS 5
+#define NUM_THREADS 3 // Número de threads para alocação paralela
+#define NUM_ASSENTOS (FILAS * COLUNAS)
 
 int assentos_ocupados = 0; // Variável global para contar assentos ocupados
 
@@ -59,44 +61,43 @@ void registrar_ocupante_assento(int fila, int colunas, int tid){
 void alocar_lugar_sequencialmente(char assentos[FILAS][COLUNAS]){
     int fila, coluna;
 
-    fila = rand() % FILAS;
-    coluna = rand() % COLUNAS;
+    while(assentos_ocupados < NUM_ASSENTOS){
+        fila = rand() % FILAS;
+        coluna = rand() % COLUNAS;
 
-    while( assentos[ fila ][ coluna ] == 'O' ){
-        int fila = rand() % FILAS;
-        int coluna = rand() % COLUNAS;
+        if(assentos[fila][coluna] == 'O') // Verifica se o assento está ocupado
+            continue; // vai para a próxima iteração
+
+        assentos[fila][coluna] = 'O'; // Ocupado
+        assentos_ocupados++;
+        registrar_ocupante_assento(fila, coluna, pthread_self());
     }
-    assentos[fila][coluna] = 'O'; // Ocupado
-    assentos_ocupados++; // Incrementa o contador de assentos ocupados
-    registrar_ocupante_assento(fila, coluna, pthread_self());
 }
 
 
 void* alocar_lugar_paralelamente(void* arg){
 
-    if(assentos_ocupados >= FILAS * COLUNAS){
-        printf("Todos os assentos estão ocupados!\n");
-        pthread_exit(NULL);
-    }                
+    char ( *assentos )[ FILAS ][ COLUNAS ] = arg;
 
-    char (*assentos)[FILAS][COLUNAS] = arg;
-    int fila = rand() % FILAS;
-    int coluna = rand() % COLUNAS;
-    while( (*assentos)[ fila ][ coluna ] == 'O' ){
+    while(assentos_ocupados < NUM_ASSENTOS){
         int fila = rand() % FILAS;
         int coluna = rand() % COLUNAS;
+
+        if( ( *assentos )[ fila ][ coluna ] == 'O' )
+            continue; // Se o assento já está ocupado, tenta outro
+        
+        ( *assentos )[ fila ][ coluna ] = 'O';
+        assentos_ocupados++;
+        registrar_ocupante_assento(fila, coluna, pthread_self());
     }
 
-    (*assentos)[ fila ][ coluna ] = 'O';
-    assentos_ocupados++; // Incrementa o contador de assentos ocupados
-    registrar_ocupante_assento(fila, coluna, pthread_self());
-    pthread_exit(NULL);
+    pthread_exit( 0 );
 }
 
 int main(){
     int i,opcao;
-    char assentos[FILAS][COLUNAS];
-    pthread_t t1, t2, t3;
+    char assentos[ FILAS ][ COLUNAS ];
+    pthread_t threads[ NUM_THREADS ];
 
     inicializar_assentos(assentos);
     do{
@@ -127,18 +128,21 @@ int main(){
                 break;
             case 3:
                 /*Criando as threads*/
-                if(pthread_create(&t1, NULL, alocar_lugar_paralelamente, (void*)&assentos)){
-                    perror("Falha ao criar a thread 1");
-                    return 1;
+
+                for(int i = 0; i < NUM_THREADS; i++){
+                    if(pthread_create(&threads[i], NULL, alocar_lugar_paralelamente, (void*)&assentos)){
+                        perror("Falha ao criar a thread");
+                        return 1;
+                    }
                 }
-                if(pthread_create(&t2, NULL, alocar_lugar_paralelamente, (void*)&assentos)){
-                    perror("Falha ao criar a thread 2");
-                    return 1;
+
+                for(int i = 0; i < NUM_THREADS; i++){
+                    if(pthread_join(threads[i], NULL) != 0){
+                        perror("pthread_join falhou");
+                        return 1;
+                    }
                 }
-                if(pthread_create(&t3, NULL, alocar_lugar_paralelamente, (void*)&assentos)){
-                    perror("Falha ao criar a thread 3");
-                    return 1;
-                }
+        
 
                 mostrar_todos_assentos(assentos);
 
