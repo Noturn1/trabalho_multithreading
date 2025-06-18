@@ -3,13 +3,16 @@
 #include <pthread.h>
 #include <stdlib.h>
 
-#define FILAS 10
-#define COLUNAS 10
+#define FILAS 5
+#define COLUNAS 5
+
+int assentos_ocupados = 0; // Variável global para contar assentos ocupados
 
 void inicializar_assentos(char assentos[FILAS][COLUNAS]);
 void mostrar_todos_assentos(char assentos[FILAS][COLUNAS]);
 void alocar_lugar_sequencialmente(char assentos[FILAS][COLUNAS]);
 void* alocar_lugar_paralelamente(void* arg);
+void registrar_ocupante_assento(int fila, int coluna, int tid);
 
 void inicializar_assentos(char assentos[FILAS][COLUNAS]){
     for (int i = 0; i < FILAS; i++){
@@ -40,38 +43,60 @@ void mostrar_todos_assentos(char assentos[FILAS][COLUNAS]){
     printf("\nLegenda: [L] = Livre, [O] = Ocupado\n");
 }
 
+void registrar_ocupante_assento(int fila, int colunas, int tid){
+    FILE *f; 
+    f = fopen("ocupantes.txt", "a"); // Abre o arquivo em modo append
+    if (f == NULL) {
+        perror("Erro ao abrir o arquivo");
+        return;
+    }
+    fprintf(f, "Ocupante do assento [%d][%d]: Thread %d\n", fila, colunas, tid);
+    fclose(f);
+
+
+}
+
 void alocar_lugar_sequencialmente(char assentos[FILAS][COLUNAS]){
     int fila, coluna;
 
     fila = rand() % FILAS;
     coluna = rand() % COLUNAS;
-    assentos[fila-1][coluna-1] = 'O'; // Ocupado
+
+    while( assentos[ fila ][ coluna ] == 'O' ){
+        int fila = rand() % FILAS;
+        int coluna = rand() % COLUNAS;
+    }
+    assentos[fila][coluna] = 'O'; // Ocupado
+    assentos_ocupados++; // Incrementa o contador de assentos ocupados
+    registrar_ocupante_assento(fila, coluna, pthread_self());
 }
 
-/*void alocar_lugar_paralelamente(char assentos[FILAS][COLUNAS]){
-    int fila, coluna;
-
-    fila = rand() % FILAS;
-    coluna = rand() % COLUNAS;
-    assentos[fila-1][coluna-1] = 'O'; // Ocupado
-}*/
 
 void* alocar_lugar_paralelamente(void* arg){
+
+    if(assentos_ocupados >= FILAS * COLUNAS){
+        printf("Todos os assentos estão ocupados!\n");
+        pthread_exit(NULL);
+    }                
+
     char (*assentos)[FILAS][COLUNAS] = arg;
     int fila = rand() % FILAS;
     int coluna = rand() % COLUNAS;
-    (*assentos)[fila][coluna] = 'O'; // Ocupa a posição
+    while( (*assentos)[ fila ][ coluna ] == 'O' ){
+        int fila = rand() % FILAS;
+        int coluna = rand() % COLUNAS;
+    }
+
+    (*assentos)[ fila ][ coluna ] = 'O';
+    assentos_ocupados++; // Incrementa o contador de assentos ocupados
+    registrar_ocupante_assento(fila, coluna, pthread_self());
     pthread_exit(NULL);
 }
-
-
 
 int main(){
     int i,opcao;
     char assentos[FILAS][COLUNAS];
     pthread_t t1, t2, t3;
-    int tid1 = 1, tid2 = 2, tid3 = 3;
-
 
     inicializar_assentos(assentos);
     do{
@@ -89,9 +114,9 @@ int main(){
             case 1:
                 mostrar_todos_assentos(assentos);
 
-                printf("\nPressione Enter para continuar...");
+                /*printf("\nPressione Enter para continuar...");
                 while(getchar() != '\n');
-
+*/
                 break;
             case 2:
                 mostrar_todos_assentos(assentos);
@@ -117,22 +142,8 @@ int main(){
 
                 mostrar_todos_assentos(assentos);
 
-                /*Esperar todas as thread terminarem*/
-                if(pthread_join(t1, NULL)){
-                    perror("Falha ao esperar a thread 1");
-                    return 1;
-                }
-                if(pthread_join(t2, NULL)){
-                    perror("Falha ao esperar a thread 1");
-                    return 1;
-                }
-                if(pthread_join(t3, NULL)){
-                    perror("Falha ao esperar a thread 1");
-                    return 1;
-                }
-
-                printf("\nPressione Enter para continuar...");
-                while(getchar() != '\n');
+                /*printf("\nPressione Enter para continuar...");
+                while(getchar() != '\n');*/
                 break;
 
         }
