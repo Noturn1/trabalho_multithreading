@@ -3,9 +3,9 @@
 #include <pthread.h>
 #include <stdlib.h>
 
-#define FILAS 5
-#define COLUNAS 5
-#define NUM_THREADS 3 // Número de threads para alocação paralela
+#define FILAS 50
+#define COLUNAS 50
+#define NUM_THREADS 30 // Número de threads para alocação paralela
 #define NUM_ASSENTOS (FILAS * COLUNAS)
 
 int assentos_ocupados = 0; // Variável global para contar assentos ocupados
@@ -85,6 +85,10 @@ void* alocar_lugar_paralelamente(void* arg){
 
         if( ( *assentos )[ fila ][ coluna ] == 'O' )
             continue; // Se o assento já está ocupado, tenta outro
+
+        // Delay proposital para aumentar chance de corrida
+        usleep(1000); // 1 milissegundo
+        //Não testei sem, alguém testa pfv
         
         ( *assentos )[ fila ][ coluna ] = 'O';
         assentos_ocupados++;
