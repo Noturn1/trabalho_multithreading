@@ -29,7 +29,7 @@ pthread_t threads[NUM_THREADS];
 // Utilizado para registrar assentos no arquivo
 void registrar_ocupante_assento(int fila, int colunas, pthread_t tid){
 
-    FILE *f = fopen("ocupantes.txt", "w");
+    FILE *f = fopen("ocupantes.txt", "a");
     if (f == NULL) return;
     fprintf(f, "Ocupante do assento [%d][%d]: Thread %lu\n", fila, colunas, tid);
     fclose(f);
