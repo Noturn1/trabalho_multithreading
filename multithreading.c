@@ -6,12 +6,13 @@
 #include <sys/time.h>
 #include <string.h>
 
-#define FILAS 200
-#define COLUNAS 200
-#define NUM_THREADS 10
+#define FILAS 25
+#define COLUNAS 25
+#define NUM_THREADS 3
 #define NUM_ASSENTOS (FILAS * COLUNAS)
 
 int assentos_ocupados = 0;
+int n_registros = 0; // Contador de registros
 sem_t semid;
 
 // Funções
@@ -27,10 +28,13 @@ pthread_t threads[NUM_THREADS];
 
 // Utilizado para registrar assentos no arquivo
 void registrar_ocupante_assento(int fila, int colunas, pthread_t tid){
+
     FILE *f = fopen("ocupantes.txt", "a");
     if (f == NULL) return;
     fprintf(f, "Ocupante do assento [%d][%d]: Thread %lu\n", fila, colunas, tid);
     fclose(f);
+
+    n_registros++;
 }
 
 // Inicializa todos os assentos
@@ -84,7 +88,7 @@ void* alocar_lugar_paralelamente(void* arg){
         if((*assentos)[fila][coluna] == 'O') continue;
         
         // Adiciona delay para forçar condição de corrida
-        // usleep(4);
+        usleep(100);
         
         (*assentos)[fila][coluna] = 'O';
         assentos_ocupados++;
@@ -117,20 +121,15 @@ void* alocar_lugar_paralelamente_sync(void* arg){
 
 // Verifica a integridade e escreve métricas
 void checarMetricas(char assentos[FILAS][COLUNAS], const char* metodo, double tempo){
-    int ocupados = 0;
-    for (int i = 0; i < FILAS; i++)
-        for (int j = 0; j < COLUNAS; j++)
-            if (assentos[i][j] == 'O')
-                ocupados++;
 
     double throughput = NUM_ASSENTOS / tempo;
 
     printf("\nMétricas - %s:\n", metodo);
     printf("Tempo de execução: %.6f segundos\n", tempo);
     printf("Vazão (assentos/s): %.2f\n", throughput);
-    printf("Assentos ocupados: %d\n", ocupados);
-    if (ocupados != NUM_ASSENTOS)
-        printf("Quantidade incorreta de assentos alocados: %d\n", ocupados - NUM_ASSENTOS);
+    printf("Assentos ocupados: %d\n", assentos_ocupados);
+    if (n_registros != NUM_ASSENTOS)
+        printf("Quantidade incorreta de assentos alocados\n");
     else
         printf("Integridade verificada com sucesso\n");
 }
@@ -194,6 +193,11 @@ int main(){
                 checarMetricas(assentos, "Multithread com sync", tempo_exec);
                 break;
         }
+
+        assentos_ocupados = 0; // Reseta contador de assentos ocupados
+        n_registros = 0; // Reseta contador de registros
+        sem_destroy(&semid); // Destrói o semáforo
+
 
     } while(opcao != 5);
 
