@@ -3,192 +3,195 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <semaphore.h>
+#include <sys/time.h>
+#include <string.h>
 
-#define FILAS 5
-#define COLUNAS 5
-#define NUM_THREADS 3 // Número de threads para alocação paralela
+#define FILAS 200
+#define COLUNAS 200
+#define NUM_THREADS 10
 #define NUM_ASSENTOS (FILAS * COLUNAS)
 
-int assentos_ocupados = 0; // Variável global para contar assentos ocupados
+int assentos_ocupados = 0;
 sem_t semid;
 
+// Funções
 void inicializar_assentos(char assentos[FILAS][COLUNAS]);
 void mostrar_todos_assentos(char assentos[FILAS][COLUNAS]);
 void alocar_lugar_sequencialmente(char assentos[FILAS][COLUNAS]);
 void* alocar_lugar_paralelamente(void* arg);
-void registrar_ocupante_assento(int fila, int coluna, pthread_t tid[NUM_THREADS]);
+void* alocar_lugar_paralelamente_sync(void* arg);
+void checarMetricas(char assentos[FILAS][COLUNAS], const char* metodo, double tempo);
 
-void inicializar_assentos(char assentos[FILAS][COLUNAS]){
-    for (int i = 0; i < FILAS; i++){
-        for(int j = 0; j < COLUNAS; j++){
-            assentos[i][j] = 'L'; // Inicializar todos assentos como livres
-        }
-    }
+// Thread handler
+pthread_t threads[NUM_THREADS];
+
+// Utilizado para registrar assentos no arquivo
+void registrar_ocupante_assento(int fila, int colunas, pthread_t tid){
+    FILE *f = fopen("ocupantes.txt", "a");
+    if (f == NULL) return;
+    fprintf(f, "Ocupante do assento [%d][%d]: Thread %lu\n", fila, colunas, tid);
+    fclose(f);
 }
 
+// Inicializa todos os assentos
+void inicializar_assentos(char assentos[FILAS][COLUNAS]){
+    for (int i = 0; i < FILAS; i++)
+        for(int j = 0; j < COLUNAS; j++)
+            assentos[i][j] = 'L';
+    assentos_ocupados = 0;
+}
+
+// Mostra todos os assentos
 void mostrar_todos_assentos(char assentos[FILAS][COLUNAS]){
-
-    printf("--- MAPA DE ASSENTOS ---\n\n");
+    printf("\n--- MAPA DE ASSENTOS ---\n\n");
     printf("         ");
-
-    // Imprimir o numero das colunas
-    for (int j = 0; j < COLUNAS; j++){
-        printf("%-3d ", j+1); // Espaco de 3 caracteres e alinha a esquerda (-)
-    }
+    for (int j = 0; j < COLUNAS; j++)
+        printf("%-3d ", j+1);
     printf("\n");
-
     for (int i = 0; i < FILAS; i++){
         printf("Fila %-2d ", i+1);
-        for (int j = 0; j < COLUNAS; j++){
+        for (int j = 0; j < COLUNAS; j++)
             printf("[%c] ", assentos[i][j]);
-        }
         printf("\n");
     }
     printf("\nLegenda: [L] = Livre, [O] = Ocupado\n");
 }
 
-void registrar_ocupante_assento(int fila, int colunas, pthread_t tid[NUM_THREADS]){
-    FILE *f; 
-    f = fopen("ocupantes.txt", "a"); // Abre o arquivo em modo append
-    if (f == NULL) {
-        perror("Erro ao abrir o arquivo");
-        return;
-    }
-    fprintf(f, "Ocupante do assento [%d][%d]: Thread %d\n", fila, colunas, tid);
-    fclose(f);
-}
-
+// Alocação sequencial
 void alocar_lugar_sequencialmente(char assentos[FILAS][COLUNAS]){
-    int fila, coluna;
-
     while(assentos_ocupados < NUM_ASSENTOS){
-        fila = rand() % FILAS;
-        coluna = rand() % COLUNAS;
-
-        if(assentos[fila][coluna] == 'O') // Verifica se o assento está ocupado
-            continue; // vai para a próxima iteração
-
-        assentos[fila][coluna] = 'O'; // Ocupado
+        int fila = rand() % FILAS;
+        int coluna = rand() % COLUNAS;
+        if(assentos[fila][coluna] == 'O') continue;
+        assentos[fila][coluna] = 'O';
         assentos_ocupados++;
         registrar_ocupante_assento(fila, coluna, pthread_self());
     }
 }
+
+// Alocação paralela sem sincronização
 
 void* alocar_lugar_paralelamente(void* arg){
+    char (*assentos)[FILAS][COLUNAS] = arg;
+    int tentativas = 0;
+    const int MAX_TENTATIVAS = NUM_ASSENTOS * 10;
 
-    char ( *assentos )[ FILAS ][ COLUNAS ] = arg;
-
-    while(assentos_ocupados < NUM_ASSENTOS){
+    while(assentos_ocupados < NUM_ASSENTOS && tentativas < MAX_TENTATIVAS) {
         int fila = rand() % FILAS;
         int coluna = rand() % COLUNAS;
+        tentativas++;
 
-        if( ( *assentos )[ fila ][ coluna ] == 'O' )
-            continue; // Se o assento já está ocupado, tenta outro
+        if((*assentos)[fila][coluna] == 'O') continue;
         
-        ( *assentos )[ fila ][ coluna ] = 'O';
+        // Adiciona delay para forçar condição de corrida
+        // usleep(4);
+        
+        (*assentos)[fila][coluna] = 'O';
         assentos_ocupados++;
         registrar_ocupante_assento(fila, coluna, pthread_self());
     }
-
-    pthread_exit( 0 );
+    pthread_exit(0);
 }
 
+// Alocação paralela com sincronização
 void* alocar_lugar_paralelamente_sync(void* arg){
-
-    char ( *assentos )[ FILAS ][ COLUNAS ] = arg;
-
-    sem_wait(&semid);
-
-    while(assentos_ocupados < NUM_ASSENTOS){
+    char (*assentos)[FILAS][COLUNAS] = arg;
+    while(1){
         int fila = rand() % FILAS;
         int coluna = rand() % COLUNAS;
 
-        if( ( *assentos )[ fila ][ coluna ] == 'O' )
-            continue; // Se o assento já está ocupado, tenta outro
-        
-        ( *assentos )[ fila ][ coluna ] = 'O';
-        assentos_ocupados++;
-        registrar_ocupante_assento(fila, coluna, pthread_self());
+        sem_wait(&semid);
+        if (assentos_ocupados >= NUM_ASSENTOS){
+            sem_post(&semid);
+            break;
+        }
+        if((*assentos)[fila][coluna] == 'L'){
+            (*assentos)[fila][coluna] = 'O';
+            assentos_ocupados++;
+            registrar_ocupante_assento(fila, coluna, pthread_self());
+        }
+        sem_post(&semid);
     }
-    sem_post(&semid);
-
-    pthread_exit( 0 );
+    pthread_exit(0);
 }
 
+// Verifica a integridade e escreve métricas
+void checarMetricas(char assentos[FILAS][COLUNAS], const char* metodo, double tempo){
+    int ocupados = 0;
+    for (int i = 0; i < FILAS; i++)
+        for (int j = 0; j < COLUNAS; j++)
+            if (assentos[i][j] == 'O')
+                ocupados++;
+
+    double throughput = NUM_ASSENTOS / tempo;
+
+    printf("\nMétricas - %s:\n", metodo);
+    printf("Tempo de execução: %.6f segundos\n", tempo);
+    printf("Vazão (assentos/s): %.2f\n", throughput);
+    printf("Assentos ocupados: %d\n", ocupados);
+    if (ocupados != NUM_ASSENTOS)
+        printf("Quantidade incorreta de assentos alocados: %d\n", ocupados - NUM_ASSENTOS);
+    else
+        printf("Integridade verificada com sucesso\n");
+}
+
+// Main
 int main(){
-    int i,opcao;
-    char assentos[ FILAS ][ COLUNAS ];
-    pthread_t threads[ NUM_THREADS ];
+    int opcao;
+    char assentos[FILAS][COLUNAS];
+    remove("ocupantes.txt");
 
-    inicializar_assentos(assentos);
-    do{
-
-        printf("--- CINEMA ---\n\n");
+    do {
+        printf("\n--- CINEMA ---\n\n");
         printf("1. Mostrar lugares disponiveis\n");
         printf("2. Reservar lugar (sequencial)\n");
-        printf("3. Reservar lugar (multithreading s/ sincronizacao)\n");
-        printf("4. Reservar lugar (multithreading c/ sincronizacao)\n");
+        printf("3. Reservar lugar (multithreading sem sync)\n");
+        printf("4. Reservar lugar (multithreading com sync)\n");
         printf("5. Sair...\n");
 
-        scanf("%d",&opcao);
+        scanf("%d", &opcao);
+        getchar(); // limpa o buffer
+
+        struct timeval inicio, fim;
+        double tempo_exec;
 
         switch(opcao){
             case 1:
                 mostrar_todos_assentos(assentos);
-
-                /*printf("\nPressione Enter para continuar...");
-                while(getchar() != '\n');
-*/
                 break;
+
             case 2:
-                mostrar_todos_assentos(assentos);
-                alocar_lugar_sequencialmente(assentos); 
-
-                printf("\nPressione Enter para continuar...");
-                while(getchar() != '\n');
+                inicializar_assentos(assentos);
+                gettimeofday(&inicio, NULL);
+                alocar_lugar_sequencialmente(assentos);
+                gettimeofday(&fim, NULL);
+                tempo_exec = (fim.tv_sec - inicio.tv_sec) + (fim.tv_usec - inicio.tv_usec) / 1e6;
+                checarMetricas(assentos, "Sequencial", tempo_exec);
                 break;
+
             case 3:
-                /*Criando as threads*/
-
-                for(int i = 0; i < NUM_THREADS; i++){
-                    if(pthread_create(&threads[i], NULL, alocar_lugar_paralelamente, (void*)&assentos)){
-                        perror("Falha ao criar a thread");
-                        return 1;
-                    }
-                }
-
-                for(int i = 0; i < NUM_THREADS; i++){
-                    if(pthread_join(threads[i], NULL) != 0){
-                        perror("pthread_join falhou");
-                        return 1;
-                    }
-                }
-
-                mostrar_todos_assentos(assentos);
+                inicializar_assentos(assentos);
+                gettimeofday(&inicio, NULL);
+                for (int i = 0; i < NUM_THREADS; i++)
+                    pthread_create(&threads[i], NULL, alocar_lugar_paralelamente, &assentos);
+                for (int i = 0; i < NUM_THREADS; i++)
+                    pthread_join(threads[i], NULL);
+                gettimeofday(&fim, NULL);
+                tempo_exec = (fim.tv_sec - inicio.tv_sec) + (fim.tv_usec - inicio.tv_usec) / 1e6;
+                checarMetricas(assentos, "Multithread sem sync", tempo_exec);
+                break;
 
             case 4:
-                // Inicializa semáforo
+                inicializar_assentos(assentos);
                 sem_init(&semid, 0, 1);
-                
-                // Cria as threads 
-                for(int i = 0; i < NUM_THREADS; i++){
-                    if(pthread_create(&threads[i], NULL, alocar_lugar_paralelamente_sync, (void*)&assentos)){
-                        perror("Falha ao criar a thread");
-                        return 1;
-                    }
-                }
-
-                for(int i = 0; i < NUM_THREADS; i++){
-                    if(pthread_join(threads[i], NULL) != 0){
-                        perror("pthread_join falhou");
-                        return 1;
-                    }
-                }
-
-                mostrar_todos_assentos(assentos);
-
-                /*printf("\nPressione Enter para continuar...");
-                while(getchar() != '\n');*/
+                gettimeofday(&inicio, NULL);
+                for (int i = 0; i < NUM_THREADS; i++)
+                    pthread_create(&threads[i], NULL, alocar_lugar_paralelamente_sync, &assentos);
+                for (int i = 0; i < NUM_THREADS; i++)
+                    pthread_join(threads[i], NULL);
+                gettimeofday(&fim, NULL);
+                tempo_exec = (fim.tv_sec - inicio.tv_sec) + (fim.tv_usec - inicio.tv_usec) / 1e6;
+                checarMetricas(assentos, "Multithread com sync", tempo_exec);
                 break;
         }
 
