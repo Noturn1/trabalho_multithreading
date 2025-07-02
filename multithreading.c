@@ -1,3 +1,16 @@
+/*
+    * Projeto: Gerenciamento de Assentos de Cinema
+    * Descrição: Simula a alocação de assentos em um cinema utilizando threads e semáforos.
+    * Autores: Arthur Angelo, Kauan Campos, Matheus Lopes
+    * Data: 02/07/2025
+
+    * Compilação: gcc -o cinema multithreading.c
+    * testar performance: perf stat ./cinema
+    * Testar com Valgrind: valgrind --leak-check=full --track-origins=yes ./cinema
+    * Execução: ./cinema
+*/
+
+
 #include <stdio.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -6,9 +19,9 @@
 #include <sys/time.h>
 #include <string.h>
 
-#define FILAS 25
-#define COLUNAS 25
-#define NUM_THREADS 3
+#define FILAS 200
+#define COLUNAS 200
+#define NUM_THREADS 30
 #define NUM_ASSENTOS (FILAS * COLUNAS)
 
 int assentos_ocupados = 0;
@@ -22,6 +35,7 @@ void alocar_lugar_sequencialmente(char assentos[FILAS][COLUNAS]);
 void* alocar_lugar_paralelamente(void* arg);
 void* alocar_lugar_paralelamente_sync(void* arg);
 void checarMetricas(char assentos[FILAS][COLUNAS], const char* metodo, double tempo);
+int contar_ocupados(char assentos[FILAS][COLUNAS]);
 
 // Thread handler
 pthread_t threads[NUM_THREADS];
@@ -34,6 +48,7 @@ void registrar_ocupante_assento(int fila, int colunas, pthread_t tid){
     fprintf(f, "Ocupante do assento [%d][%d]: Thread %lu\n", fila, colunas, tid);
     fclose(f);
 
+    // Incrementa o contador de registros
     n_registros++;
 }
 
@@ -123,22 +138,36 @@ void* alocar_lugar_paralelamente_sync(void* arg){
 void checarMetricas(char assentos[FILAS][COLUNAS], const char* metodo, double tempo){
 
     double throughput = NUM_ASSENTOS / tempo;
+    int ocupados_verificados = contar_ocupados(assentos);
 
     printf("\nMétricas - %s:\n", metodo);
     printf("Tempo de execução: %.6f segundos\n", tempo);
     printf("Vazão (assentos/s): %.2f\n", throughput);
     printf("Assentos ocupados: %d\n", assentos_ocupados);
-    if (n_registros != NUM_ASSENTOS)
-        printf("Quantidade incorreta de assentos alocados\n");
+    if (n_registros != NUM_ASSENTOS || ocupados_verificados != NUM_ASSENTOS)
+        printf("Inconsistência detectada nos dados!\n");
     else
         printf("Integridade verificada com sucesso\n");
 }
+
+
+int contar_ocupados(char assentos[FILAS][COLUNAS]){
+    int ocupados = 0;
+    for (int i = 0; i < FILAS; i++)
+        for (int j = 0; j < COLUNAS; j++)
+            if (assentos[i][j] == 'O')
+                ocupados++;
+    return ocupados;
+}
+
 
 // Main
 int main(){
     int opcao;
     char assentos[FILAS][COLUNAS];
-    remove("ocupantes.txt");
+
+    inicializar_assentos(assentos);
+    
 
     do {
         printf("\n--- CINEMA ---\n\n");
@@ -150,6 +179,7 @@ int main(){
 
         scanf("%d", &opcao);
         getchar(); // limpa o buffer
+        remove("ocupantes.txt");
 
         struct timeval inicio, fim;
         double tempo_exec;
