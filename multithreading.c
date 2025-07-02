@@ -6,14 +6,18 @@
 #include <sys/time.h>
 #include <string.h>
 
-#define FILAS 25
-#define COLUNAS 25
-#define NUM_THREADS 3
+#define FILAS 500
+#define COLUNAS 500
+#define NUM_THREADS 10
 #define NUM_ASSENTOS (FILAS * COLUNAS)
 
 int assentos_ocupados = 0;
 int n_registros = 0; // Contador de registros
-sem_t semid;
+
+// Correção (mais de 1 semaforo acessa alocacao)
+sem_t mutex_assento;
+sem_t sem_assento_cheio;
+sem_t sem_assento_vazio;
 
 // Funções
 void inicializar_assentos(char assentos[FILAS][COLUNAS]);
@@ -42,7 +46,8 @@ void inicializar_assentos(char assentos[FILAS][COLUNAS]){
     for (int i = 0; i < FILAS; i++)
         for(int j = 0; j < COLUNAS; j++)
             assentos[i][j] = 'L';
-    assentos_ocupados = 0;
+    assentos_ocupados = 0; // Reseta contador de assentos ocupados
+    n_registros = 0; // Reseta contador de registros
 }
 
 // Mostra todos os assentos
@@ -100,23 +105,40 @@ void* alocar_lugar_paralelamente(void* arg){
 // Alocação paralela com sincronização
 void* alocar_lugar_paralelamente_sync(void* arg){
     char (*assentos)[FILAS][COLUNAS] = arg;
-    while(1){
-        int fila = rand() % FILAS;
-        int coluna = rand() % COLUNAS;
 
-        sem_wait(&semid);
-        if (assentos_ocupados >= NUM_ASSENTOS){
-            sem_post(&semid);
-            break;
+    while(assentos_ocupados < NUM_ASSENTOS){ // Thread espera por "crédito" para alocar assento
+                                             // se todos feram utilizados, dorme aqui
+        sem_wait(&sem_assento_vazio);
+
+        if (assentos_ocupados >= NUM_ASSENTOS) {
+            break;                        
         }
-        if((*assentos)[fila][coluna] == 'L'){
+
+        sem_wait(&mutex_assento);
+
+        if (assentos_ocupados < NUM_ASSENTOS){
+            // Buscar por espaço vago 
+            int fila,coluna;
+            do {
+                fila = rand() % FILAS;
+                coluna = rand() % COLUNAS;
+            } while ((*assentos)[fila][coluna] == 'O');
+
             (*assentos)[fila][coluna] = 'O';
             assentos_ocupados++;
             registrar_ocupante_assento(fila, coluna, pthread_self());
+
+            sem_post(&sem_assento_cheio);
+
+            if (assentos_ocupados >= NUM_ASSENTOS){ // Para evitar que alguma thread fique dormindo (DEADLOCK)
+                for (int i = 0; i < NUM_THREADS; i++){
+                    sem_post(&sem_assento_vazio);
+                }
+            }
         }
-        sem_post(&semid);
+        sem_post(&mutex_assento);
     }
-    pthread_exit(0);
+    return NULL; // Chama pthread_exit(0) automaticamente
 }
 
 // Verifica a integridade e escreve métricas
@@ -137,8 +159,11 @@ void checarMetricas(char assentos[FILAS][COLUNAS], const char* metodo, double te
 // Main
 int main(){
     int opcao;
-    char assentos[FILAS][COLUNAS];
-    remove("ocupantes.txt");
+
+    static char assentos[FILAS][COLUNAS];
+
+    srand(time(NULL));
+    remove("ocupantes.txt"); // Reiniciar o log 
 
     do {
         printf("\n--- CINEMA ---\n\n");
@@ -182,22 +207,27 @@ int main(){
 
             case 4:
                 inicializar_assentos(assentos);
-                sem_init(&semid, 0, 1);
+
+                // Inicializa semaforos como problema do buffer limitado 
+                sem_init(&mutex_assento, 0, 1);
+                sem_init(&sem_assento_vazio, 0, NUM_ASSENTOS);
+                sem_init(&sem_assento_cheio, 0, 0);
+
                 gettimeofday(&inicio, NULL);
                 for (int i = 0; i < NUM_THREADS; i++)
                     pthread_create(&threads[i], NULL, alocar_lugar_paralelamente_sync, &assentos);
                 for (int i = 0; i < NUM_THREADS; i++)
                     pthread_join(threads[i], NULL);
+
+                sem_destroy(&mutex_assento);
+                sem_destroy(&sem_assento_vazio);
+                sem_destroy(&sem_assento_cheio);
+
                 gettimeofday(&fim, NULL);
                 tempo_exec = (fim.tv_sec - inicio.tv_sec) + (fim.tv_usec - inicio.tv_usec) / 1e6;
                 checarMetricas(assentos, "Multithread com sync", tempo_exec);
                 break;
         }
-
-        assentos_ocupados = 0; // Reseta contador de assentos ocupados
-        n_registros = 0; // Reseta contador de registros
-        sem_destroy(&semid); // Destrói o semáforo
-
 
     } while(opcao != 5);
 
