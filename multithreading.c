@@ -26,7 +26,7 @@
 
 int assentos_ocupados = 0;
 int n_registros = 0; // Contador de registros
-sem_t semid;
+sem_t semid, sem_n_registros; // Semáforos para sincronização
 
 // Funções
 void inicializar_assentos(char assentos[FILAS][COLUNAS]);
@@ -43,6 +43,7 @@ pthread_t threads[NUM_THREADS];
 // Utilizado para registrar assentos no arquivo
 void registrar_ocupante_assento(int fila, int colunas, pthread_t tid){
 
+    sem_wait(&sem_n_registros);
     FILE *f = fopen("ocupantes.txt", "a");
     if (f == NULL) return;
     fprintf(f, "Ocupante do assento [%d][%d]: Thread %lu\n", fila, colunas, tid);
@@ -50,6 +51,7 @@ void registrar_ocupante_assento(int fila, int colunas, pthread_t tid){
 
     // Incrementa o contador de registros
     n_registros++;
+    sem_post(&sem_n_registros);
 }
 
 // Inicializa todos os assentos
@@ -191,6 +193,7 @@ int main(){
 
             case 2:
                 inicializar_assentos(assentos);
+                sem_init(&sem_n_registros, 0, 1);
                 gettimeofday(&inicio, NULL);
                 alocar_lugar_sequencialmente(assentos);
                 gettimeofday(&fim, NULL);
@@ -200,6 +203,7 @@ int main(){
 
             case 3:
                 inicializar_assentos(assentos);
+                sem_init(&sem_n_registros, 0, 1);
                 gettimeofday(&inicio, NULL);
                 for (int i = 0; i < NUM_THREADS; i++)
                     pthread_create(&threads[i], NULL, alocar_lugar_paralelamente, &assentos);
@@ -213,6 +217,7 @@ int main(){
             case 4:
                 inicializar_assentos(assentos);
                 sem_init(&semid, 0, 1);
+                sem_init(&sem_n_registros, 0, 1);
                 gettimeofday(&inicio, NULL);
                 for (int i = 0; i < NUM_THREADS; i++)
                     pthread_create(&threads[i], NULL, alocar_lugar_paralelamente_sync, &assentos);
@@ -227,7 +232,7 @@ int main(){
         assentos_ocupados = 0; // Reseta contador de assentos ocupados
         n_registros = 0; // Reseta contador de registros
         sem_destroy(&semid); // Destrói o semáforo
-
+        sem_destroy(&sem_n_registros); // Destrói o semáforo
 
     } while(opcao != 5);
 
